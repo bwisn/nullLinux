@@ -1,0 +1,2 @@
+#!/bin/sh
+sudo qemu-system-x86_64 -kernel packages/linux_x86_64/out/boot/vmlinuz -hda img/nulllinux_rootfs_x86_64.img -append "root=/dev/sda" -enable-kvm

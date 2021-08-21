@@ -1,0 +1,218 @@
+#!/bin/sh
+
+if [ "$(
+	cd "$(dirname "$0")" >/dev/null 2>&1
+	pwd -P
+)" != "$(pwd -P)" ]; then
+	echo "Run this script from the script directory!"
+	exit 1
+fi
+
+source config/toolchains_config
+source ../helpers
+
+check_if_root
+
+if [ "$1" == "" ]; then
+	echo "Specify config filename (without directory) eg. x86_64_config"
+	exit 1
+else
+	if [ ! -f config/$1 ]; then
+		echo "Specified config file doesn't exist!"
+		exit 1
+	fi
+	source config/$1
+fi
+
+if [ -z "$TOOLCHAIN_ARCH" ] || [ -z "$TARGET" ] || [ -z "$ARCH_KERNEL" ]; then
+	cat <<EOF
+Toolchain config variables are not set!
+Example toolchain config file:
+
+source ../config/linux_config
+
+TARGET="x86_64-linux-musl" # Target toolchain name
+TOOLCHAIN_ARCH="x86_64" # x86_64, arm, aarch64 etc.
+ARCH_KERNEL="x86" # Linux kernel architecture, for headers
+EOF
+	exit 1
+fi
+
+if [ -z "$LINUX_URL" ]; then
+	echo "LINUX_URL is not set"
+	exit 1
+fi
+
+BASEDIR=$(pwd)
+SRCDIR="$BASEDIR/sources"
+ARCHDIR="$BASEDIR/$TOOLCHAIN_ARCH"
+INSTALLDIR="$ARCHDIR/tools"
+SYSROOT="$INSTALLDIR/$TARGET/sysroot"
+DOWNLOADDIR="$BASEDIR/../download"
+
+if [ -d "$ARCHDIR" ]; then
+	read -n1 -p "The toolchain already exists. Do you want to rebuild it (y) or exit (n)? " option
+	case $option in
+	y | Y)
+		echo -en '\r\nPlease manually delete '
+		echo "$ARCHDIR directory."
+		exit 1
+		;;
+	n | N) exit 1 ;;
+	*)
+		echo "Unknown option, exiting!"
+		exit 1
+		;;
+	esac
+
+fi
+
+mkdir -p $DOWNLOADDIR
+mkdir -p $ARCHDIR/obj
+cd $ARCHDIR
+
+# Download and unpack GCC
+echo "Downloading GCC"
+download "https://ftp.gnu.org/pub/gnu/gcc/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.xz" "$DOWNLOADDIR/gcc.tar.xz"
+echo "Unpacking GCC"
+unpack_tar "$DOWNLOADDIR/gcc.tar.xz" "$SRCDIR/gcc"
+
+# Download and unpack binutils
+echo "Downloading binutils"
+download "https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VERSION.tar.xz" "$DOWNLOADDIR/binutils.tar.xz"
+echo "Unpacking binutils"
+unpack_tar "$DOWNLOADDIR/binutils.tar.xz" "$SRCDIR/binutils"
+
+# Download and unpack musl
+echo "Downloading musl"
+download "https://musl.libc.org/releases/musl-$MUSL_VERSION.tar.gz" "$DOWNLOADDIR/musl.tar.gz"
+echo "Unpacking musl"
+unpack_tar "$DOWNLOADDIR/musl.tar.gz" "$SRCDIR/musl"
+
+# Download and unpack GMP
+echo "Downloading GMP"
+download "https://gmplib.org/download/gmp/gmp-$GMP_VERSION.tar.xz" "$DOWNLOADDIR/gmp.tar.xz"
+echo "Unpacking GMP"
+unpack_tar "$DOWNLOADDIR/gmp.tar.xz" "$SRCDIR/gcc/gmp"
+
+# Download and unpack MPC
+echo "Downloading MPC"
+download "https://ftp.gnu.org/gnu/mpc/mpc-$MPC_VERSION.tar.gz" "$DOWNLOADDIR/mpc.tar.gz"
+echo "Unpacking MPC"
+unpack_tar "$DOWNLOADDIR/mpc.tar.gz" "$SRCDIR/gcc/mpc"
+
+# Download and unpack MPFR
+echo "Downloading MPFR"
+download "https://www.mpfr.org/mpfr-current/mpfr-$MPFR_VERSION.tar.xz" "$DOWNLOADDIR/mpfr.tar.xz"
+echo "Unpacking MPFR"
+unpack_tar "$DOWNLOADDIR/mpfr.tar.xz" "$SRCDIR/gcc/mpfr"
+
+# Download and unpack Linux
+echo "Downloading Linux"
+download "$LINUX_URL" "$DOWNLOADDIR/linux_$TOOLCHAIN_ARCH.tar.xz"
+echo "Unpacking Linux"
+unpack_tar "$DOWNLOADDIR/linux_$TOOLCHAIN_ARCH.tar.xz" "$SRCDIR/linux_$TOOLCHAIN_ARCH"
+
+# Begin building
+cd $ARCHDIR/obj
+
+# Create sysroot
+mkdir -p $SYSROOT/usr
+mkdir -p $SYSROOT/lib
+ln -sf lib $SYSROOT/lib32
+ln -sf lib $SYSROOT/lib64
+
+# Installing Linux headers
+if [ ! -d $SYSROOT/usr/include ]; then
+	echo "Installing Linux headers"
+	cd $SRCDIR/linux_$TOOLCHAIN_ARCH
+	make -s ARCH=$ARCH_KERNEL INSTALL_HDR_PATH=$SYSROOT/usr headers_install
+	cd $ARCHDIR/obj
+fi
+
+# Building binutils
+if [ ! -d binutils ]; then
+	echo "Building binutils"
+	mkdir binutils
+	cd binutils
+
+	$SRCDIR/binutils/configure -q --prefix=$INSTALLDIR \
+		--target=$TARGET --disable-nls --with-sysroot=$SYSROOT \
+		--without-newlib
+
+	make -s -j $(nproc) MAKEINFO=true
+	make -s install MAKEINFO=true
+	cd ..
+fi
+
+# Building GCC Part 1
+if [ ! -d gcc ]; then
+	echo "Building GCC Part 1"
+	mkdir -p gcc
+	cd gcc
+
+	$SRCDIR/gcc/configure -q --prefix=$INSTALLDIR \
+		--target=$TARGET --enable-languages=c,c++ --with-sysroot=$SYSROOT \
+		--without-headers --without-newlib --disable-werror \
+		--disable-multilib --disable-shared --disable-libgomp \
+		--disable-libssp --disable-libmudflap
+
+	make -s -j $(nproc) all-gcc MAKEINFO=true
+	cd ..
+fi
+
+# Installing MUSL headers
+if [ ! -d musl ]; then
+	echo "Installing MUSL headers"
+	mkdir -p musl
+	cd musl
+
+	CC="$ARCHDIR/obj/gcc/gcc/xgcc -B $ARCHDIR/obj/gcc/gcc" \
+		LIBCC="$ARCHDIR/obj/gcc/$TARGET/libgcc/libgcc.a" \
+		CROSS_COMPILE="$INSTALLDIR/bin/$TARGET-" \
+		$SRCDIR/musl/configure -q --host=$TARGET --prefix= # No prefix
+	DESTDIR="$SYSROOT/usr" make -s install-headers MAKEINFO=true
+	cd ..
+fi
+
+# Building libgcc
+if [ -d gcc ]; then
+	echo "Building libgcc"
+	cd gcc
+	make -s MAKE="make enable_shared=no" -j $(nproc) all-target-libgcc MAKEINFO=true
+	cd ..
+fi
+
+# Building MUSL
+if [ -d musl ]; then
+	echo "Building MUSL"
+	cd musl
+	DESTDIR="$SYSROOT" \
+		AR="$INSTALLDIR/bin/$TARGET-ar" \
+		RANLIB="$INSTALLDIR/bin/$TARGET-ranlib" \
+		make -s -j $(nproc) MAKEINFO=true
+
+	DESTDIR="$SYSROOT" \
+		AR="$INSTALLDIR/bin/$TARGET-ar" \
+		RANLIB="$INSTALLDIR/bin/$TARGET-ranlib" \
+		make -s install MAKEINFO=true
+	cd ..
+fi
+
+# Building GCC Stage 2
+if [ ! -d gcc_stage2 ]; then
+	echo "Building GCC Stage 2"
+	mkdir gcc_stage2
+	cd gcc_stage2
+
+	$SRCDIR/gcc/configure -q --prefix=$INSTALLDIR \
+		--target=$TARGET --enable-languages=c,c++ --with-sysroot=$SYSROOT \
+		--disable-werror --enable-shared --without-newlib \
+		--disable-multilib --disable-libgomp
+
+	make -s -j $(nproc) all-{gcc,target-libgcc} MAKEINFO=true
+	make -s install-{gcc,target-libgcc} MAKEINFO=true
+	cd ..
+fi
+
+echo "Finished!"

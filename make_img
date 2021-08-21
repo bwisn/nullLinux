@@ -1,0 +1,92 @@
+#!/bin/sh
+
+clean_src() {
+	for f in packages/*; do
+		if [ -d "$f" ]; then
+			echo "Removing $f sources"
+			rm -rf $f/{out,src}
+		fi
+	done
+}
+
+clean_downloads() {
+	echo "Removing downloaded packages"
+	rm -rf download/*
+}
+
+clean() {
+	clean_src
+	clean_downloads
+}
+
+build() {
+
+	cd $BASEDIR
+
+	# Build packages specified in pkg_list file
+	sed '/^[ \t]*$/d' $BASEDIR/pkg_list | while read -r pkg_name; do
+		echo "Building $pkg_name"
+		cd $BASEDIR/packages/"$pkg_name"
+		./build
+	done
+
+	echo "Creating blank rootfs image (img directory)"
+	mkdir -p img
+	cd img
+	IMGDIR="$(pwd)"
+	rm nulllinux_rootfs_x86_64.img
+	dd if=/dev/zero of=nulllinux_rootfs_x86_64.img bs=1M count=$IMG_SIZE
+	mkfs.ext4 nulllinux_rootfs_x86_64.img
+
+	echo "Mounting newly created image"
+	TMPDIR="$(pwd)/tmpdir"
+	mkdir -p $TMPDIR
+	sudo mount -t ext4 nulllinux_rootfs_x86_64.img $TMPDIR -o loop
+
+	echo "Copying packages files to image"
+	sed '/^[ \t]*$/d' $BASEDIR/pkg_list | while read -r pkg_name; do
+		echo "Copying $pkg_name"
+		cd $BASEDIR/packages/"$pkg_name"
+		sudo cp -r out/* $TMPDIR
+		if [ -f final ]; then
+			./final $TMPDIR
+		fi
+	done
+
+	echo "Unmounting image"
+	cd $IMGDIR
+	sudo sync
+	sudo umount $TMPDIR
+	sudo rm -rf $TMPDIR
+
+	echo "Done!"
+	exit 0
+}
+
+if [ "$(
+	cd "$(dirname "$0")" >/dev/null 2>&1
+	pwd -P
+)" != "$(pwd -P)" ]; then
+	echo "Run this script from the script directory!"
+	exit 1
+fi
+
+source ./system_config
+source ./helpers
+
+check_if_root
+
+if [ "$#" == 0 ]; then
+	echo "Usage: ./makeimg [build] [clean_src] [clean_downloads] [clean]"
+	exit 0
+fi
+
+BASEDIR="$(pwd -P)"
+
+case $1 in
+"build") build ;;
+"clean_src") clean_src ;;
+"clean_downloads") clean_downloads ;;
+"clean") clean ;;
+*) echo "Unknown parameter passed: $1" ;;
+esac

@@ -1,0 +1,15 @@
+#!/bin/sh
+
+if [ "$1" == "" ]; then
+    echo "Specify tmpdir"
+    exit 1
+fi
+
+cd $1
+
+sudo chmod 0750 root
+sudo chown root:root root
+sudo chmod 1777 {var/tmp,tmp}
+sudo chgrp -v utmp var/log/lastlog
+sudo chmod -v 664 var/log/lastlog
+sudo chmod -v 600 var/log/btmp

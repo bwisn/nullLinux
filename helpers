@@ -1,0 +1,40 @@
+download() { # 1st parameter "URL", 2nd parameter "file location"
+	if [ ! -f $2 ]; then
+		wget $1 -O $2
+	fi
+}
+
+unpack_tar() { # 1st parameter "archive", 2nd parameter "where to unpack"
+	if [ ! -d $2 ]; then
+		mkdir -p $2
+		tar -xf $1 --strip 1 -C $2
+	fi
+}
+
+check_if_root() {
+	if [[ $EUID == 0 ]]; then
+		echo "This script cannot be run as root!"
+		exit 1
+	fi
+}
+
+must_be_root() {
+	if [[ $EUID != 0 ]]; then
+		echo "This script must be run as root!"
+		exit 1
+	fi
+}
+
+check_starting_dir() {
+	if [ "$(
+		cd "$(dirname "$0")" >/dev/null 2>&1
+		pwd -P
+	)" != "$(pwd -P)" ]; then
+		echo "Run this script from the script directory!"
+		exit 1
+	fi
+}
+
+add_toolchain_to_path() {
+	PATH="$(realpath ../../toolchain/$ARCHITECTURE/tools/bin):$PATH"
+}

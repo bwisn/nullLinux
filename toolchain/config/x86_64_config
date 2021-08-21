@@ -1,0 +1,5 @@
+source ../pkg_config/linux_x86_64_config
+
+TARGET="x86_64-linux-musl" # Target toolchain name
+TOOLCHAIN_ARCH="x86_64" # x86_64, arm, aarch64 etc., get this from script name
+ARCH_KERNEL="x86" # Linux kernel architecture, for headers

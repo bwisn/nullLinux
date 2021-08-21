@@ -1,0 +1,33 @@
+#!/bin/sh
+
+if [ "$(
+	cd "$(dirname "$0")" >/dev/null 2>&1
+	pwd -P
+)" != "$(pwd -P)" ]; then
+	echo "Run this script from the script directory!"
+	exit 1
+fi
+
+source ../../system_config
+source ../../helpers
+check_if_root
+
+rm -rf out
+mkdir -p ../../download out/sbin
+
+add_toolchain_to_path
+
+if [ -d "src" ]; then
+	cd src
+	git pull
+else
+	git clone https://github.com/bwisn/quickInit.git src
+	cd src
+fi
+
+make CC="$TARGET-gcc"
+
+cp obj/init ../out/sbin/init
+cp -R example_config/* ../out/
+
+cd ..

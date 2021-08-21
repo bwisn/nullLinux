@@ -1,0 +1,35 @@
+#!/bin/sh
+
+if [ "$(
+	cd "$(dirname "$0")" >/dev/null 2>&1
+	pwd -P
+)" != "$(pwd -P)" ]; then
+	echo "Run this script from the script directory!"
+	exit 1
+fi
+
+source ../../pkg_config/linux_x86_64_config
+source ../../system_config
+source ../../helpers
+
+check_if_root
+
+rm -rf out
+mkdir -p ../../download out/boot
+
+download "$LINUX_URL" "../../download/linux_x86_64.tar.xz"
+unpack_tar "../../download/linux_x86_64.tar.xz" "src"
+
+add_toolchain_to_path
+
+cd src
+make ARCH=x86 CROSS_COMPILE=$TARGET- x86_64_defconfig
+make ARCH=x86 CROSS_COMPILE=$TARGET- -j $(nproc)
+make ARCH=x86 CROSS_COMPILE=$TARGET- INSTALL_MOD_PATH=../out/ modules_install
+cp arch/x86/boot/bzImage ../out/boot/vmlinuz
+cp System.map ../out/boot/System.map
+cp .config ../out/boot/config
+
+rm ../out/lib/modules/*/{build,source}
+
+cd ..

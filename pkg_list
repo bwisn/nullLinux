@@ -1,0 +1,5 @@
+linux_x86_64
+musl
+busybox
+base-files
+quickinit

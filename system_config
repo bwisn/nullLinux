@@ -1,0 +1,5 @@
+# HOSTNAME
+SYSTEM_HOSTNAME="nulllinux"
+ARCHITECTURE="x86_64" # Toolchain architecture
+TARGET="x86_64-linux-musl" # Toolchain prefix
+IMG_SIZE="64" # Image size in MiB (if needed)

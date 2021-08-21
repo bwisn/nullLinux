@@ -1,0 +1,38 @@
+#!/bin/sh
+
+if [ "$(
+	cd "$(dirname "$0")" >/dev/null 2>&1
+	pwd -P
+)" != "$(pwd -P)" ]; then
+	echo "Run this script from the script directory!"
+	exit 1
+fi
+
+source ../../system_config
+source ../../helpers
+check_if_root
+
+rm -rf out
+rm -rf src
+mkdir -p ../../download out
+
+download "https://busybox.net/downloads/busybox-1.33.1.tar.bz2" "../../download/busybox.tar.bz2"
+unpack_tar "../../download/busybox.tar.bz2" "src"
+
+add_toolchain_to_path
+
+cd src
+make CROSS_COMPILE=$TARGET- defconfig
+
+sed -i 's/CONFIG_INIT=y/CONFIG_INIT=n/g' .config
+sed -i 's/CONFIG_BOOTCHARTD=y/CONFIG_BOOTCHARTD=n/g' .config
+sed -i 's/CONFIG_HALT=y/CONFIG_HALT=n/g' .config
+sed -i 's/CONFIG_POWEROFF=y/CONFIG_POWEROFF=n/g' .config
+sed -i 's/CONFIG_REBOOT=y/CONFIG_REBOOT=n/g' .config
+sed -i 's/CONFIG_FEATURE_WAIT_FOR_INIT=y/CONFIG_FEATURE_WAIT_FOR_INIT=n/g' .config
+sed -i 's/CONFIG_LINUXRC=y/CONFIG_LINUXRC=n/g' .config
+
+make CROSS_COMPILE=$TARGET- -j $(nproc)
+make CROSS_COMPILE=$TARGET- CONFIG_PREFIX=../out install
+
+cd ..
