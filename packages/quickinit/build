@@ -13,7 +13,7 @@ source ../../helpers
 check_if_root
 
 rm -rf out
-mkdir -p ../../download out/sbin
+mkdir -p ../../download out/sbin out/usr/bin
 
 add_toolchain_to_path
 
@@ -25,9 +25,12 @@ else
 	cd src
 fi
 
-make CC="$TARGET-gcc"
+make CROSS_COMPILE="$TARGET-"
 
 cp obj/init ../out/sbin/init
+cp obj/telinit ../out/sbin/telinit
 cp -R example_config/* ../out/
+cp -R scripts/* ../out/usr/bin/
+chmod +x ../out/usr/bin/{poweroff,reboot,halt}
 
 cd ..
